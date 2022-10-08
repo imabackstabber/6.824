@@ -28,13 +28,13 @@ P.P.S.:We shall get `NumOfReduce`(in this lab,10) reduce output files, named `mr
 
 1. Concurrency model. Because of using Golang, Raft basically need a main thread(goroutine) to detect the state transition of servers. Apart from that, it has multiple sub goroutine running at the same time.(e.g. RequestVote as a candidate, SendHeartbeat as a leader). It's crucial  that one implement this concurrency model correctly, to make sure message can pass in time to maintain the correctness of the    raft system.
 
-   <img src="/Users/alex/git_repo/6.824/asset/raft-图4.png" alt="图 4 " style="zoom:50%;" />
+   <img src="./asset/raft-图4.png" alt="图 4 " style="zoom:50%;" />
 
 > Fig2-a.1 Copied from Fig.4 in `Rust-extended`.
 
-2. It's important to know when to use `go <func>` to launch a goroutine, and processing return value of goroutine by using **channels**. For example, one candidate need to ask for vote to everyone, then there's no need to use a for loop and wait for return value and process it. Instead, use `go <func>` and send return value to channel
+1. It's important to know when to use `go <func>` to launch a goroutine, and processing return value of goroutine by using **channels**. For example, one candidate need to ask for vote to everyone, then there's no need to use a for loop and wait for return value and process it. Instead, use `go <func>` and send return value to channel
 
-3. Use the fucking `-race` flag. If you don't know how to run a specific test with a race flag, here is a example shows how to run 2A with race flag:
+2. Use the fucking `-race` flag. If you don't know how to run a specific test with a race flag, here is a example shows how to run 2A with race flag:
 
    ```bash
    go test -run 2A -race
@@ -42,4 +42,4 @@ P.P.S.:We shall get `NumOfReduce`(in this lab,10) reduce output files, named `mr
 
    That will make your life easier.
 
-4. Be careful when using lock. Since go will not prevent you using lock to do anything you want (In rust, complier freaks out, sometimes it recycle the lock you use in callee function automatically), pay attention how to use lock(e.g. you might accidentally leave function before unlock the lock) and when to use it(e.g. coarse/fine granularity consideration)
+3. Be careful when using lock. Since go will not prevent you using lock to do anything you want (In rust, complier freaks out, sometimes it recycle the lock you use in callee function automatically), pay attention how to use lock(e.g. you might accidentally leave function before unlock the lock) and when to use it(e.g. coarse/fine granularity consideration)
