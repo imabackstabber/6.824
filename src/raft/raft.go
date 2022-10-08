@@ -97,6 +97,20 @@ type Raft struct {
 	// State transition channels
 	chanHeartbeat chan bool
 	chanHaveVoted chan bool
+	// State RWLock
+	stateRWLock sync.RWMutex
+}
+
+func (rf *Raft) writeState(nxt int) {
+	rf.stateRWLock.Lock()
+	defer rf.stateRWLock.Unlock()
+	rf.state = nxt
+}
+
+func (rf *Raft) readState() int {
+	rf.stateRWLock.RLock()
+	defer rf.stateRWLock.RUnlock()
+	return rf.state
 }
 
 // return currentTerm and whether this server
@@ -109,7 +123,7 @@ func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	term = rf.currentTerm
-	isleader = (rf.state == STATE_LEADER)
+	isleader = (rf.readState() == STATE_LEADER)
 	return term, isleader
 }
 
@@ -218,7 +232,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	if args.Term > rf.currentTerm {
-		rf.state = STATE_FOLLOWER
+		rf.writeState(STATE_FOLLOWER)
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 	}
@@ -245,7 +259,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
-		rf.state = STATE_FOLLOWER
+		rf.writeState(STATE_FOLLOWER)
 		rf.leaderId = args.LeaderId
 		rf.votedFor = -1
 	}
@@ -297,7 +311,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 		if reply.Term > rf.currentTerm {
 			rf.currentTerm = reply.Term
-			rf.state = STATE_FOLLOWER
+			rf.writeState(STATE_FOLLOWER)
 			rf.votedFor = -1
 			return ok
 		}
@@ -305,7 +319,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		if reply.VotedGranted {
 			rf.votedReceived++
 			if rf.votedReceived > (len(rf.peers) / 2) {
-				rf.state = STATE_LEADER
+				rf.writeState(STATE_LEADER)
 				return ok
 			}
 		}
@@ -325,7 +339,7 @@ func (rf *Raft) sendingApplyEntries(server int, args *AppendEntriesArgs, reply *
 
 		if reply.Term > rf.currentTerm {
 			rf.currentTerm = reply.Term
-			rf.state = STATE_FOLLOWER
+			rf.writeState(STATE_FOLLOWER)
 			rf.votedFor = -1
 			return ok
 		}
@@ -334,10 +348,17 @@ func (rf *Raft) sendingApplyEntries(server int, args *AppendEntriesArgs, reply *
 	return ok
 }
 
-func (rf *Raft) runningCompaign() {
+func (rf *Raft) initializeRequestVoteArgs() RequestVoteArgs {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	args := RequestVoteArgs{}
 	args.CandidateId = rf.me
 	args.Term = rf.currentTerm
+	return args
+}
+
+func (rf *Raft) runningCompaign() {
+	args := rf.initializeRequestVoteArgs()
 
 	for i := 0; i < len(rf.peers); i++ {
 		if i != rf.me {
@@ -347,11 +368,17 @@ func (rf *Raft) runningCompaign() {
 	}
 }
 
-func (rf *Raft) sendingHeartBeat() {
+func (rf *Raft) initializeAppendEntriesArgs() AppendEntriesArgs {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	args := AppendEntriesArgs{}
 	args.LeaderId = rf.me
 	args.Term = rf.currentTerm
-	// fmt.Printf("%d send heartbeat with %d\n", rf.me, rf.currentTerm)
+	return args
+}
+
+func (rf *Raft) sendingHeartBeat() {
+	args := rf.initializeAppendEntriesArgs()
 
 	for i := 0; i < len(rf.peers); i++ {
 		if i != rf.me {
@@ -410,14 +437,14 @@ func (rf *Raft) killed() bool {
 // heartsbeats recently.
 func (rf *Raft) ticker() {
 	for !rf.killed() {
-		switch rf.state {
+		switch rf.readState() {
 		case STATE_FOLLOWER:
 			select {
 			case <-rf.chanHaveVoted:
 			case <-rf.chanHeartbeat:
 			case <-time.After(time.Millisecond * time.Duration(rand.Intn(electionIntervalMax-electionIntervalMin)+electionIntervalMin)):
 				// fmt.Printf("%d become CANDIDATE from FOLLOWER\n", rf.me)
-				rf.state = STATE_CANDIDATE
+				rf.writeState(STATE_CANDIDATE)
 			}
 		case STATE_CANDIDATE:
 			rf.mu.Lock()
@@ -429,7 +456,7 @@ func (rf *Raft) ticker() {
 			// fmt.Printf("%d running campaign as CANDIDATE with term %d\n", rf.me, rf.currentTerm)
 			select {
 			case <-rf.chanHeartbeat:
-				rf.state = STATE_FOLLOWER
+				rf.writeState(STATE_FOLLOWER)
 			case <-time.After(time.Millisecond * time.Duration(rand.Intn(electionIntervalMax-electionIntervalMin)+electionIntervalMin)):
 			}
 		case STATE_LEADER:
